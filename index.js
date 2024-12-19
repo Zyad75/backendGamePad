@@ -17,6 +17,7 @@ app.use(express.json());
 require("dotenv").config();
 mongoose.connect(process.env.MONGODB_URI);
 
+//model user
 const User = mongoose.model("User", {
   email: { type: String, unique: true },
   username: String,
@@ -24,6 +25,7 @@ const User = mongoose.model("User", {
   hash: String,
   salt: String,
 });
+
 //model favoris
 const Favorite = mongoose.model("Favorite", {
   gameId: String,
@@ -32,6 +34,19 @@ const Favorite = mongoose.model("Favorite", {
   owner: {
     type: mongoose.Schema.Types.ObjectId,
     ref: "User",
+  },
+});
+
+//model review
+
+const Review = mongoose.model("Review", {
+  gameId: String,
+  title: String,
+  review: String,
+  owner: String,
+  date: {
+    type: Date,
+    default: Date.now,
   },
 });
 
@@ -47,6 +62,12 @@ app.post("/signup", async (req, res) => {
 
     if (existingUser) {
       return res.status(409).json({ error: "email already used" });
+    }
+    const existingUsername = await User.findOne({
+      username: req.body.username,
+    });
+    if (existingUsername) {
+      return res.status(409).json({ error: "username already used" });
     }
     // 1) salt et token
     const salt = uid2(16);
@@ -90,7 +111,7 @@ app.post("/login", async (req, res) => {
     const userFound = await User.findOne({ email: req.body.email });
 
     if (!userFound) {
-      return res.status(400).json({ error: "email incorect" });
+      return res.status(400).json({ error: "email inccorect" });
     }
 
     const newHash = SHA256(req.body.password + userFound.salt).toString(
@@ -118,7 +139,7 @@ app.post("/login", async (req, res) => {
 const isAuthenticated = async (req, res, next) => {
   const token = req.headers.authorization.replace("Bearer ", "");
 
-  // a qui ce token correspond ?
+  //user  correspondant au token ?
 
   const user = await User.findOne({ token: token }).select("-salt -hash");
 
@@ -187,6 +208,49 @@ app.post("/deleteFav", isAuthenticated, async (req, res) => {
     res.status(500).json({ error: error.message });
   }
 });
+
+//Route pour ajouter une review sur un game,
+app.post("/review", isAuthenticated, async (req, res) => {
+  try {
+    if (!req.body.review || !req.body.title || !req.body.gameId) {
+      return res.status(400).json({ error: "Missing parameters" });
+    }
+    const existingReviewOnThisGame = await Review.findOne({
+      gameId: req.body.gameId,
+      owner: req.user.username,
+    });
+    if (existingReviewOnThisGame) {
+      return res
+        .status(409)
+        .json({ message: "error, you already write a review on this game" });
+    }
+    const date = Date.now();
+    const newReview = new Review({
+      title: req.body.title,
+      review: req.body.review,
+      owner: req.user.username,
+      gameId: req.body.gameId,
+      date: date,
+    });
+    await newReview.save();
+    res.status(201).json("Review Successfuly added !");
+  } catch (error) {
+    console.log(error);
+  }
+});
+//route pour obtenir les reviews en fonction du jeu
+app.get("/reviews", async (req, res) => {
+  try {
+    const reviews = await Review.find({ gameId: req.query.gameId });
+    if (!reviews) {
+      return res.status(400).json({ message: "no reviews for this game" });
+    }
+    res.json(reviews);
+  } catch (error) {
+    console.log(error);
+  }
+});
+
 app.all("*", (req, res) => {
   res.json({ message: "all Routes" });
 });
